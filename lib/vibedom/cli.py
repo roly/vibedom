@@ -1157,6 +1157,25 @@ def _validate_sync_paths(paths: tuple, src: Path) -> list[Path]:
     return validated
 
 
+def _make_workspace_relative(raw: str, workspace_root: Path, cwd: Path | None = None) -> str:
+    """Resolve a path argument relative to CWD if CWD is inside workspace_root.
+
+    Returns a workspace-root-relative path string. Falls back to raw unchanged
+    if CWD is outside workspace_root or if the resolved path escapes the root.
+    """
+    if cwd is None:
+        cwd = Path.cwd()
+    workspace_resolved = workspace_root.resolve()
+    try:
+        cwd.resolve().relative_to(workspace_resolved)
+    except ValueError:
+        return raw
+    try:
+        return str((cwd / raw).resolve().relative_to(workspace_resolved))
+    except ValueError:
+        return raw
+
+
 def _build_rsync_cmd(
     src: Path,
     dst: Path,

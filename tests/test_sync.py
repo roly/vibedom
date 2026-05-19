@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 from click.testing import CliRunner
-from vibedom.cli import main
+from vibedom.cli import main, _make_workspace_relative
 from vibedom.container_state import ContainerState
 
 
@@ -279,3 +279,34 @@ def test_pull_multi_path_rsync_has_correct_argument_order(sync_env):
     assert cmd[-1] == str(workspace_path.resolve()), (
         f"Last rsync argument should be destination '{workspace_path}', got '{cmd[-1]}'"
     )
+
+
+def test_make_workspace_relative_from_cwd_inside_workspace(tmp_path):
+    workspace = tmp_path / 'myapp'
+    (workspace / 'src' / 'app').mkdir(parents=True)
+    cwd = workspace / 'src'
+    result = _make_workspace_relative('app', workspace, cwd=cwd)
+    assert result == 'src/app'
+
+
+def test_make_workspace_relative_from_cwd_at_workspace_root(tmp_path):
+    workspace = tmp_path / 'myapp'
+    (workspace / 'src').mkdir(parents=True)
+    result = _make_workspace_relative('src', workspace, cwd=workspace)
+    assert result == 'src'
+
+
+def test_make_workspace_relative_from_cwd_outside_workspace(tmp_path):
+    workspace = tmp_path / 'myapp'
+    workspace.mkdir()
+    cwd = tmp_path  # outside workspace
+    result = _make_workspace_relative('src/app', workspace, cwd=cwd)
+    assert result == 'src/app'  # unchanged
+
+
+def test_make_workspace_relative_from_cwd_deeply_nested(tmp_path):
+    workspace = tmp_path / 'myapp'
+    (workspace / 'src' / 'app' / 'Controllers').mkdir(parents=True)
+    cwd = workspace / 'src' / 'app'
+    result = _make_workspace_relative('Controllers', workspace, cwd=cwd)
+    assert result == 'src/app/Controllers'
