@@ -1,6 +1,8 @@
 # External AI APIs
 api.anthropic.com
 openai.com
+# Uncomment the line below if you use Cloudflare AI Gateway (vibedom config cloudflare):
+# gateway.ai.cloudflare.com
 
 # Package managers
 packagist.org

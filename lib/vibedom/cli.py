@@ -18,6 +18,54 @@ from vibedom.session import Session, SessionCleanup, SessionRegistry
 from vibedom.project_config import ProjectConfig
 from vibedom.proxy import ProxyManager
 from vibedom.container_state import ContainerState, ContainerRegistry
+from vibedom.global_config import GlobalConfig
+
+
+_CLOUDFLARE_DOMAIN = 'gateway.ai.cloudflare.com'
+
+
+def _detect_username() -> str:
+    """Return the OS username, falling back to 'unknown' if not determinable."""
+    import getpass
+    try:
+        return getpass.getuser()
+    except Exception:
+        return 'unknown'
+
+
+def _prompt_prefilled(prompt_text: str, prefill: str = '') -> str:
+    """Prompt with the existing value pre-filled so the user can edit or clear it.
+
+    On an interactive TTY, uses readline to insert the existing value into the input
+    buffer — the user can edit it, delete it entirely (to clear), or press Enter to
+    keep it unchanged.  On non-interactive stdin (pipes, scripts) falls back to
+    click.prompt with the value shown in brackets (Enter keeps existing).
+    """
+    import sys
+    if sys.stdin.isatty():
+        try:
+            import readline
+            def _hook():
+                readline.insert_text(prefill)
+                readline.redisplay()
+            readline.set_pre_input_hook(_hook)
+            try:
+                return input(f'{prompt_text}: ').strip()
+            finally:
+                readline.set_pre_input_hook(None)
+        except (ImportError, AttributeError):
+            pass
+    return click.prompt(prompt_text, default=prefill, show_default=bool(prefill)).strip()
+
+
+def _ensure_cloudflare_whitelisted(whitelist_path: Path) -> None:
+    """Add gateway.ai.cloudflare.com to the whitelist if not already present."""
+    text = whitelist_path.read_text()
+    if _CLOUDFLARE_DOMAIN in text:
+        return
+    # Append under the External AI APIs section if present, else at the end
+    with open(whitelist_path, 'a') as f:
+        f.write(f'\n# Cloudflare AI Gateway\n{_CLOUDFLARE_DOMAIN}\n')
 
 
 def _execute_deletions(to_delete: list, skipped: int, force: bool, dry_run: bool) -> None:
@@ -88,6 +136,53 @@ def init(runtime: str):
     click.echo(f"✓ Whitelist created at {whitelist_path}")
     click.echo("  Edit this file to add your internal domains")
 
+    # Cloudflare AI Gateway (optional)
+    click.echo("\n" + "="*60)
+    click.echo("☁️  Cloudflare AI Gateway (optional)")
+    click.echo("   Routes AI API calls through Cloudflare for monitoring,")
+    click.echo("   rate limiting, caching, and cost controls.")
+    click.echo("   Press Enter to skip.")
+    click.echo("="*60)
+    existing_cfg = GlobalConfig.load(config_dir)
+    account_id = _prompt_prefilled(
+        "  Cloudflare Account ID",
+        prefill=existing_cfg.cloudflare_account_id or '',
+    )
+    if account_id:
+        gateway_id = _prompt_prefilled(
+            "  Cloudflare Gateway ID",
+            prefill=existing_cfg.cloudflare_gateway_id or '',
+        )
+        if gateway_id:
+            gateway_token = _prompt_prefilled(
+                "  Gateway auth token (leave blank if gateway is public)",
+                prefill=existing_cfg.cloudflare_gateway_token or '',
+            )
+            default_user = existing_cfg.vibedom_username or _detect_username()
+            username = click.prompt(
+                "  Your username (used as cf-aig-metadata user for request attribution)",
+                default=default_user,
+                show_default=True,
+            ).strip()
+            cfg = GlobalConfig(
+                cloudflare_account_id=account_id,
+                cloudflare_gateway_id=gateway_id,
+                cloudflare_gateway_token=gateway_token or None,
+                vibedom_username=username or None,
+            )
+            cfg.save(config_dir)
+            click.echo(f"✓ Cloudflare AI Gateway configured")
+            click.echo(f"  Anthropic URL: {cfg.anthropic_base_url()}")
+            if cfg.cloudflare_gateway_token:
+                click.echo("  Auth token: configured")
+            if cfg.vibedom_username:
+                click.echo(f"  User ID: {cfg.vibedom_username}")
+            _ensure_cloudflare_whitelisted(whitelist_path)
+        else:
+            click.echo("  Skipped (no gateway ID provided)")
+    else:
+        click.echo("  Skipped")
+
     # Build VM image
     click.echo("\nBuilding VM image (this may take a few minutes on first run)...")
     try:
@@ -103,6 +198,89 @@ def init(runtime: str):
         click.echo("  Run 'vibedom build' manually once a container runtime is installed")
 
     click.echo("\n✅ Initialization complete!")
+
+
+@main.group()
+def config():
+    """Manage global vibedom configuration."""
+    pass
+
+
+@config.command('cloudflare')
+@click.option('--account-id', default=None, help='Cloudflare account ID')
+@click.option('--gateway-id', default=None, help='Cloudflare AI Gateway ID')
+@click.option('--auth-token', default=None, help='Gateway auth token (for authenticated gateways)')
+@click.option('--username', default=None, help='User ID sent in cf-aig-metadata header (defaults to OS username)')
+@click.option('--clear', is_flag=True, default=False, help='Remove Cloudflare AI Gateway configuration')
+def config_cloudflare(account_id: Optional[str], gateway_id: Optional[str],
+                      auth_token: Optional[str], username: Optional[str], clear: bool):
+    """Configure Cloudflare AI Gateway.
+
+    Routes AI API calls (Anthropic, etc.) through Cloudflare AI Gateway for
+    monitoring, rate limiting, caching, and cost controls.
+
+    For authenticated gateways pass --auth-token. A username is set as the
+    cf-aig-metadata user field on every request for attribution in gateway analytics;
+    it defaults to the OS username if not specified.
+
+    Example:
+
+        vibedom config cloudflare --account-id abc123 --gateway-id my-gateway
+        vibedom config cloudflare --account-id abc123 --gateway-id my-gateway --auth-token TOKEN
+    """
+    config_dir = Path.home() / '.vibedom'
+    whitelist_path = config_dir / 'trusted_domains.txt'
+
+    if clear:
+        cfg = GlobalConfig()
+        cfg.save(config_dir)
+        click.echo("✓ Cloudflare AI Gateway configuration removed")
+        return
+
+    existing = GlobalConfig.load(config_dir)
+
+    # Prompt for required fields when not supplied as flags
+    if account_id is None:
+        account_id = _prompt_prefilled(
+            'Cloudflare Account ID',
+            prefill=existing.cloudflare_account_id or '',
+        )
+    if gateway_id is None:
+        gateway_id = _prompt_prefilled(
+            'Cloudflare Gateway ID',
+            prefill=existing.cloudflare_gateway_id or '',
+        )
+
+    # Resolve username: explicit flag > existing config > OS username
+    resolved_username = username or existing.vibedom_username or _detect_username()
+    # Resolve token: explicit flag > prompt (showing existing value) > existing config
+    if auth_token is None:
+        auth_token = _prompt_prefilled(
+            "Gateway auth token (leave blank to make gateway public)",
+            prefill=existing.cloudflare_gateway_token or '',
+        ) or None
+    resolved_token = auth_token
+
+    cfg = GlobalConfig(
+        cloudflare_account_id=account_id,
+        cloudflare_gateway_id=gateway_id,
+        cloudflare_gateway_token=resolved_token or None,
+        vibedom_username=resolved_username or None,
+    )
+    cfg.save(config_dir)
+    click.echo("✓ Cloudflare AI Gateway configured")
+    click.echo(f"  Anthropic URL: {cfg.anthropic_base_url()}")
+    if cfg.cloudflare_gateway_token:
+        click.echo("  Auth token: configured")
+    if cfg.vibedom_username:
+        click.echo(f"  User ID: {cfg.vibedom_username}")
+
+    if whitelist_path.exists():
+        _ensure_cloudflare_whitelisted(whitelist_path)
+        click.echo(f"✓ {_CLOUDFLARE_DOMAIN} added to whitelist")
+    else:
+        click.echo(f"  Note: run 'vibedom init' to create a whitelist, then {_CLOUDFLARE_DOMAIN} will be added automatically")
+
 
 @main.command()
 @click.argument('workspace', type=click.Path(exists=True))
@@ -144,12 +322,15 @@ def run(workspace, runtime):
         click.echo("🚀 Starting sandbox...")
         config_dir = Path.home() / '.vibedom'
         project_config = ProjectConfig.load(workspace_path)
+        global_cfg = GlobalConfig.load(config_dir)
         vm = VMManager(workspace_path, config_dir,
                        session_dir=session.session_dir,
                        runtime=resolved_runtime,
                        network=project_config.network if project_config else None,
                        base_image=project_config.base_image if project_config else None,
-                       host_aliases=project_config.host_aliases if project_config else None)
+                       host_aliases=project_config.host_aliases if project_config else None,
+                       extra_env=global_cfg.extra_env(),
+                       proxy_extra_env=global_cfg.proxy_env())
         vm.start()
 
         # Store proxy info so reload-whitelist can send SIGHUP to the host process
@@ -848,6 +1029,7 @@ def up(workspace, runtime):
     registry = ContainerRegistry(containers_dir)
     container_state = registry.find(workspace_path.name)
 
+    global_cfg = GlobalConfig.load(config_dir)
     vm = VMManager(
         workspace_path, config_dir,
         container_dir=container_dir,
@@ -856,6 +1038,8 @@ def up(workspace, runtime):
         base_image=project_config.base_image if project_config else None,
         host_aliases=project_config.host_aliases if project_config else None,
         memory=project_config.memory if project_config else None,
+        extra_env=global_cfg.extra_env(),
+        proxy_extra_env=global_cfg.proxy_env(),
     )
 
     if vm.is_running():

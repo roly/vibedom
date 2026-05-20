@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import Optional
 
 try:
     from mitmproxy import http
@@ -24,6 +25,8 @@ except ImportError:
 # Import DLP scrubber (copied alongside this file to /mnt/config/)
 sys.path.insert(0, str(Path(__file__).parent))
 from dlp_scrubber import DLPScrubber
+
+_CLOUDFLARE_GATEWAY_HOST = 'gateway.ai.cloudflare.com'
 
 # Content types safe to scrub (text-based)
 SCRUBBABLE_CONTENT_TYPES = (
@@ -54,6 +57,10 @@ class VibedomProxy:
         )
         config_path = gitleaks_config if Path(gitleaks_config).exists() else None
         self.scrubber = DLPScrubber(gitleaks_config=config_path)
+
+        # Cloudflare AI Gateway auth — injected as headers on requests to the gateway
+        self.cf_aig_token: Optional[str] = os.environ.get('VIBEDOM_CF_AIG_TOKEN')
+        self.vibedom_user: Optional[str] = os.environ.get('VIBEDOM_USER')
 
         # Register SIGHUP handler for whitelist reload
         signal.signal(signal.SIGHUP, self._reload_whitelist)
@@ -165,9 +172,22 @@ class VibedomProxy:
             for f in findings
         ]
 
+    def _inject_cloudflare_headers(self, flow: http.HTTPFlow) -> None:
+        """Inject Cloudflare AI Gateway auth and user-id headers when configured."""
+        host = (flow.request.host_header or flow.request.host or '').lower()
+        if _CLOUDFLARE_GATEWAY_HOST not in host:
+            return
+        if self.cf_aig_token:
+            flow.request.headers['cf-aig-authorization'] = f'Bearer {self.cf_aig_token}'
+        if self.vibedom_user:
+            flow.request.headers['cf-aig-metadata'] = json.dumps({'user': self.vibedom_user})
+
     def request(self, flow: http.HTTPFlow) -> None:
         """Intercept, scrub, and filter requests."""
         domain = flow.request.host_header or flow.request.host
+
+        # Inject Cloudflare gateway auth headers before the request leaves the proxy
+        self._inject_cloudflare_headers(flow)
 
         scrubbed_findings = []
 

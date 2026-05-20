@@ -19,7 +19,9 @@ class VMManager:
                  base_image: Optional[str] = None,
                  host_aliases: Optional[dict] = None,
                  container_dir: Optional[Path] = None,
-                 memory: Optional[str] = None):
+                 memory: Optional[str] = None,
+                 extra_env: Optional[dict] = None,
+                 proxy_extra_env: Optional[dict] = None):
         """Initialize VM manager.
 
         Args:
@@ -35,6 +37,10 @@ class VMManager:
                 Takes precedence over session_dir for the repo mount.
             memory: Memory limit for the container (e.g. '4g', '2048m'). Defaults to 4g on
                 apple/container (whose default 1GB is insufficient for Claude Code).
+            extra_env: Additional environment variables to inject into the container.
+                Used for e.g. ANTHROPIC_BASE_URL when Cloudflare AI Gateway is configured.
+            proxy_extra_env: Additional environment variables to inject into the mitmproxy host
+                process. Used for e.g. CF gateway auth token and user ID headers.
         """
         self.workspace = workspace.resolve()
         self.config_dir = config_dir.resolve()
@@ -43,6 +49,8 @@ class VMManager:
         self.container_name = f'vibedom-{workspace.name}'
         self.runtime, self.runtime_cmd = self._detect_runtime(runtime)
         self.memory = memory
+        self.extra_env = extra_env or {}
+        self.proxy_extra_env = proxy_extra_env or {}
         self.network = network
         self.base_image = base_image
         self.host_aliases = host_aliases or {}
@@ -247,6 +255,7 @@ class VMManager:
         self._proxy = ProxyManager(
             session_dir=proxy_log_dir,
             config_dir=self.config_dir,
+            extra_env=self.proxy_extra_env,
         )
         proxy_port = self._proxy.start()
 
@@ -292,6 +301,11 @@ class VMManager:
             '-e', f'SSL_CERT_FILE={ca_bundle}',
             '-e', f'CURL_CA_BUNDLE={ca_bundle}',
             '-e', f'NODE_EXTRA_CA_CERTS={ca_bundle}',
+        ]
+        # Extra env vars (e.g. ANTHROPIC_BASE_URL for Cloudflare AI Gateway)
+        for key, value in self.extra_env.items():
+            cmd += ['-e', f'{key}={value}']
+        cmd += [
             # Mounts
             '-v', f'{self.workspace}:/mnt/workspace:ro',
             '-v', f'{self.config_dir}:/mnt/config:ro',

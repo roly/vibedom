@@ -34,9 +34,11 @@ def _wait_for_proxy(port: int, timeout: int = 10) -> bool:
 class ProxyManager:
     """Manages a host-side mitmproxy process for one session."""
 
-    def __init__(self, session_dir: Path, config_dir: Path):
+    def __init__(self, session_dir: Path, config_dir: Path,
+                 extra_env: Optional[dict] = None):
         self.session_dir = session_dir
         self.config_dir = config_dir
+        self.extra_env = extra_env or {}
         self._process: Optional[subprocess.Popen] = None
         self._log_file = None
         self.port: Optional[int] = None
@@ -78,6 +80,7 @@ class ProxyManager:
             'VIBEDOM_NETWORK_LOG_PATH': str(self.session_dir / 'network.jsonl'),
             'VIBEDOM_GITLEAKS_CONFIG': str(self.config_dir / 'gitleaks.toml'),
         })
+        env.update(self.extra_env)
 
         log_path = self.session_dir / 'mitmproxy.log'
         self._log_file = open(log_path, 'w')

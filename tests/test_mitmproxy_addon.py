@@ -147,3 +147,108 @@ def test_missing_whitelist_prints_warning(mock_mkdir, tmp_path, monkeypatch, cap
     captured = capsys.readouterr()
     assert 'WARNING' in captured.err
     assert 'blocking all traffic' in captured.err
+
+
+# ------------------------------------------------------------------ #
+# Cloudflare AI Gateway header injection
+# ------------------------------------------------------------------ #
+
+def _make_proxy(tmp_path, monkeypatch, cf_token=None, cf_user=None):
+    """Instantiate VibedomProxy with Cloudflare env vars optionally set."""
+    monkeypatch.setenv('VIBEDOM_WHITELIST_PATH', str(tmp_path / 'domains.txt'))
+    monkeypatch.setenv('VIBEDOM_NETWORK_LOG_PATH', str(tmp_path / 'network.jsonl'))
+    monkeypatch.setenv('VIBEDOM_GITLEAKS_CONFIG', str(tmp_path / 'gitleaks.toml'))
+    if cf_token:
+        monkeypatch.setenv('VIBEDOM_CF_AIG_TOKEN', cf_token)
+    if cf_user:
+        monkeypatch.setenv('VIBEDOM_USER', cf_user)
+    from mitmproxy_addon import VibedomProxy
+    return VibedomProxy()
+
+
+def _make_flow(host):
+    flow = MagicMock()
+    flow.request.host = host
+    flow.request.host_header = host
+    flow.request.headers = {}
+    return flow
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_headers_injected_for_gateway_host(mock_mkdir, tmp_path, monkeypatch):
+    """cf-aig-authorization header injected when request goes to gateway.ai.cloudflare.com."""
+    proxy = _make_proxy(tmp_path, monkeypatch, cf_token='my-token')
+    flow = _make_flow('gateway.ai.cloudflare.com')
+
+    proxy._inject_cloudflare_headers(flow)
+
+    assert flow.request.headers.get('cf-aig-authorization') == 'Bearer my-token'
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_user_header_injected_for_gateway_host(mock_mkdir, tmp_path, monkeypatch):
+    """cf-aig-metadata header injected with user JSON when VIBEDOM_USER is set."""
+    import json as json_mod
+    proxy = _make_proxy(tmp_path, monkeypatch, cf_token='tok', cf_user='alice')
+    flow = _make_flow('gateway.ai.cloudflare.com')
+
+    proxy._inject_cloudflare_headers(flow)
+
+    metadata = json_mod.loads(flow.request.headers['cf-aig-metadata'])
+    assert metadata['user'] == 'alice'
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_both_headers_injected_together(mock_mkdir, tmp_path, monkeypatch):
+    """Both cf-aig-authorization and cf-aig-metadata are injected when both configured."""
+    proxy = _make_proxy(tmp_path, monkeypatch, cf_token='tok', cf_user='bob')
+    flow = _make_flow('gateway.ai.cloudflare.com')
+
+    proxy._inject_cloudflare_headers(flow)
+
+    assert 'cf-aig-authorization' in flow.request.headers
+    assert 'cf-aig-metadata' in flow.request.headers
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_headers_not_injected_for_other_hosts(mock_mkdir, tmp_path, monkeypatch):
+    """No Cloudflare headers injected for requests to non-gateway hosts."""
+    proxy = _make_proxy(tmp_path, monkeypatch, cf_token='tok', cf_user='alice')
+    flow = _make_flow('api.anthropic.com')
+
+    proxy._inject_cloudflare_headers(flow)
+
+    assert 'cf-aig-authorization' not in flow.request.headers
+    assert 'cf-aig-metadata' not in flow.request.headers
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_headers_not_injected_when_unconfigured(mock_mkdir, tmp_path, monkeypatch):
+    """No Cloudflare headers injected when neither token nor user is configured."""
+    proxy = _make_proxy(tmp_path, monkeypatch)  # no token, no user
+    flow = _make_flow('gateway.ai.cloudflare.com')
+
+    proxy._inject_cloudflare_headers(flow)
+
+    assert 'cf-aig-authorization' not in flow.request.headers
+    assert 'cf-aig-metadata' not in flow.request.headers
+
+
+@patch('pathlib.Path.mkdir')
+def test_cf_headers_injected_via_request_pipeline(mock_mkdir, tmp_path, monkeypatch):
+    """Headers are injected when request() is called (integration through the pipeline)."""
+    whitelist = tmp_path / 'domains.txt'
+    whitelist.write_text('gateway.ai.cloudflare.com\n')
+    monkeypatch.setenv('VIBEDOM_WHITELIST_PATH', str(whitelist))
+    proxy = _make_proxy(tmp_path, monkeypatch, cf_token='pipeline-tok', cf_user='carol')
+
+    flow = _make_flow('gateway.ai.cloudflare.com')
+    flow.request.content = None
+    flow.request.pretty_url = 'https://gateway.ai.cloudflare.com/v1/abc/gw/anthropic/v1/messages'
+    flow.request.url = flow.request.pretty_url
+    flow.request.method = 'POST'
+
+    proxy.request(flow)
+
+    assert flow.request.headers.get('cf-aig-authorization') == 'Bearer pipeline-tok'
+    assert 'cf-aig-metadata' in flow.request.headers

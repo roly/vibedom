@@ -4,7 +4,7 @@
 
 **Vibedom** is a hardware-isolated sandbox environment for running AI coding agents (Claude Code, Cursor, etc.) safely on Apple Silicon Macs.
 
-**Current Status**: Phase 1 complete. Phase 2 DLP complete (real-time scrubbing, audit logging). Persistent container workflow complete (iterative development with bidirectional sync).
+**Current Status**: Phase 1 complete. Phase 2 DLP complete (real-time scrubbing, audit logging). Persistent container workflow complete (iterative development with bidirectional sync). Cloudflare AI Gateway integration complete (optional routing, auth headers, per-user attribution).
 
 **Primary Goal**: Enable safe AI agent usage in enterprise environments with compliance requirements (SOC2, HIPAA, etc.)
 
@@ -45,10 +45,17 @@
    - Session directories: `~/.vibedom/logs/session-YYYYMMDD-HHMMSS-microseconds/`
    - Retained for ephemeral session workflow
 
-6. **CLI** (`lib/vibedom/cli.py`)
+6. **Global Config** (`lib/vibedom/global_config.py`)
+   - `GlobalConfig` dataclass persisted at `~/.vibedom/config.json`
+   - Stores Cloudflare AI Gateway credentials (account ID, gateway ID, auth token, username)
+   - `extra_env()` → `ANTHROPIC_BASE_URL` injected into containers
+   - `proxy_env()` → `VIBEDOM_CF_AIG_TOKEN` / `VIBEDOM_USER` injected into mitmproxy host process
+
+7. **CLI** (`lib/vibedom/cli.py`)
    - **Persistent containers**: `up`, `down`, `destroy`, `status`, `shell`, `pull`, `push`
    - **Ephemeral sessions**: `run`, `stop`, `attach`, `review`, `merge`
    - **Shared**: `init`, `reload-whitelist`, `list`, `rm`, `prune`, `housekeeping`, `proxy-restart`
+   - **Config**: `config cloudflare` — set/update/clear Cloudflare AI Gateway credentials
 
 ### Key Design Decisions
 
@@ -80,6 +87,13 @@
 **Deploy Keys**: Unique SSH key per machine
 - Rationale: Avoid exposing personal credentials to VM
 - Setup: `vibedom init` generates key, user adds to GitLab/GitHub
+
+**Cloudflare AI Gateway**: Optional routing of AI API calls through Cloudflare
+- Configured during `vibedom init` or via `vibedom config cloudflare`
+- Stored in `~/.vibedom/config.json` (account ID, gateway ID, auth token, username)
+- `ANTHROPIC_BASE_URL` injected as container env var so Claude Code uses the gateway URL automatically
+- Auth token and user ID injected as `cf-aig-authorization` / `cf-aig-metadata` HTTP headers by the mitmproxy addon (host process) — not stored in the container
+- `gateway.ai.cloudflare.com` auto-added to the network whitelist on configuration
 
 ## Development Workflow
 
@@ -129,6 +143,8 @@ cd .worktrees/feature-name
 ```
 
 ### Test-Driven Development
+
+**Always run the full test suite after any code change and fix any failures before committing.** Use `pytest tests/ -v`. Core logic tests must be 100% passing.
 
 All features follow TDD:
 1. Write failing test
@@ -270,6 +286,7 @@ vibedom/
 │   ├── ssh_keys.py          # Deploy key management
 │   ├── whitelist.py         # Domain whitelist logic
 │   ├── proxy.py             # Host-side mitmproxy management
+│   ├── global_config.py     # GlobalConfig: Cloudflare AI Gateway credentials, per-container env injection
 │   ├── config/              # Default configs (gitleaks.toml, trusted_domains.txt)
 │   └── container/           # Container image files (Dockerfile.*, startup.sh, mitmproxy_addon.py)
 ├── tests/                   # Test suite
@@ -325,6 +342,11 @@ vibedom merge myapp-happy-turing     # merge changes
 # --- Shared ---
 vibedom reload-whitelist             # hot-reload domain whitelist
 vibedom list                         # list all sessions
+
+# --- Cloudflare AI Gateway ---
+vibedom config cloudflare --account-id abc123 --gateway-id my-gw   # configure
+vibedom config cloudflare --account-id abc123 --gateway-id my-gw --auth-token TOKEN  # with auth
+vibedom config cloudflare --clear    # remove gateway configuration
 ```
 
 ### Debugging
@@ -364,6 +386,13 @@ cat ~/.vibedom/logs/session-*/network.jsonl
 - ✅ **Bidirectional sync**: `vibedom push/pull` with `.gitignore`-aware rsync
 - ✅ **Setup scripts**: `setup:` in `vibedom.yml` for one-time environment setup
 - ✅ **Proxy auto-restart**: proxy health checked and restarted on `up`/`shell`
+
+### Phase 2c: Cloudflare AI Gateway ✅ (Complete)
+
+- ✅ **Gateway routing**: `ANTHROPIC_BASE_URL` injected into containers so Claude Code routes API calls through Cloudflare
+- ✅ **Auth headers**: `cf-aig-authorization` and `cf-aig-metadata` injected by mitmproxy addon (no credentials stored in container)
+- ✅ **Init prompt**: `vibedom init` asks whether to configure gateway; `vibedom config cloudflare` for updates
+- ✅ **Whitelist integration**: `gateway.ai.cloudflare.com` auto-added to trusted domains
 
 ### Phase 3: Production Hardening
 
@@ -443,6 +472,6 @@ For questions or issues, refer to project documentation or create an issue in th
 
 ---
 
-**Last Updated**: 2026-04-14 (Persistent containers + bidirectional sync complete)
-**Status**: Phase 1 complete, Phase 2 DLP complete, Phase 2b persistent containers complete
+**Last Updated**: 2026-06-08 (Cloudflare AI Gateway integration complete)
+**Status**: Phase 1 complete, Phase 2 DLP complete, Phase 2b persistent containers complete, Phase 2c Cloudflare AI Gateway complete
 **Next Milestone**: High-severity alerting OR Phase 3 production hardening
