@@ -434,3 +434,173 @@ def test_find_deletions_returns_empty_when_nothing_deleted(tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stdout='src/app.php\nsrc/other.py\n')
         result = _find_deletions(cmd)
     assert result == []
+
+
+def test_pull_delete_shows_preview_and_aborts_on_no(sync_env):
+    """pull --delete should show deletion preview and abort if user says no."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions', return_value=['.env.secrets']) as mock_fd:
+                result = runner.invoke(
+                    main, ['pull', 'myapp', '--delete', '--yes'],
+                    input='n\n', catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    assert '.env.secrets' in result.output
+    rsync_calls = [c for c in mock_run.call_args_list if 'rsync' in str(c)]
+    assert not rsync_calls, "rsync should NOT run when user declines deletion preview"
+
+
+def test_pull_delete_proceeds_on_yes(sync_env):
+    """pull --delete should proceed after user confirms deletion preview."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions', return_value=['.env.secrets']):
+                result = runner.invoke(
+                    main, ['pull', 'myapp', '--delete', '--yes'],
+                    input='y\n', catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    rsync_calls = [c for c in mock_run.call_args_list if 'rsync' in str(c)]
+    assert rsync_calls, "rsync should run after user confirms"
+
+
+def test_pull_delete_force_skips_preview(sync_env):
+    """pull --delete --force should skip deletion preview entirely."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions') as mock_fd:
+                result = runner.invoke(
+                    main, ['pull', 'myapp', '--delete', '--force'], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    mock_fd.assert_not_called()
+    rsync_calls = [c for c in mock_run.call_args_list if 'rsync' in str(c)]
+    assert rsync_calls, "rsync should run when --force is used"
+
+
+def test_pull_delete_dry_run_skips_preview(sync_env):
+    """pull --delete --dry-run should skip deletion preview (dry-run output covers it)."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions') as mock_fd:
+                result = runner.invoke(
+                    main, ['pull', 'myapp', '--delete', '--dry-run'], catch_exceptions=False
+                )
+
+    mock_fd.assert_not_called()
+
+
+def test_pull_delete_no_preview_when_nothing_deleted(sync_env):
+    """pull --delete should not prompt if _find_deletions returns empty list."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions', return_value=[]):
+                result = runner.invoke(
+                    main, ['pull', 'myapp', '--delete', '--yes'], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    assert 'Proceed?' not in result.output
+
+
+def test_push_delete_shows_preview_and_aborts_on_no(sync_env):
+    """push --delete should show deletion preview and abort if user says no."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions', return_value=['.env.secrets']):
+                result = runner.invoke(
+                    main, ['push', 'myapp', '--delete', '--yes'],
+                    input='n\n', catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    assert '.env.secrets' in result.output
+    rsync_calls = [c for c in mock_run.call_args_list if 'rsync' in str(c)]
+    assert not rsync_calls
+
+
+def test_push_delete_force_skips_preview(sync_env):
+    """push --delete --force should skip deletion preview and full-tree prompt."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._find_deletions') as mock_fd:
+                result = runner.invoke(
+                    main, ['push', 'myapp', '--delete', '--force'], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    mock_fd.assert_not_called()
+
+
+def test_force_skips_full_tree_confirmation(sync_env):
+    """--force should skip the full-tree sync confirmation prompt."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            # No --yes, no input — would hang if it prompted
+            result = runner.invoke(
+                main, ['push', 'myapp', '--force'], catch_exceptions=False
+            )
+
+    assert result.exit_code == 0
+    rsync_calls = [c for c in mock_run.call_args_list if 'rsync' in str(c)]
+    assert rsync_calls

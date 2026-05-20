@@ -1251,7 +1251,8 @@ def _find_deletions(cmd: list[str]) -> list[str]:
 @click.option('--delete', is_flag=True, help='Also remove files in host that are absent in container')
 @click.option('--dry-run', '-n', is_flag=True, help='Show what would be synced without doing it')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation for full-tree sync')
-def pull(workspace, paths, delete, dry_run, yes):
+@click.option('--force', '-f', is_flag=True, help='Skip all confirmations')
+def pull(workspace, paths, delete, dry_run, yes, force):
     """Sync code from container to host workspace.
 
     WORKSPACE is the workspace directory name or path.
@@ -1281,7 +1282,7 @@ def pull(workspace, paths, delete, dry_run, yes):
             sys.exit(1)
 
     # Full-tree sync without --dry-run requires confirmation
-    if not paths and not dry_run and not yes:
+    if not paths and not dry_run and not yes and not force:
         if not click.confirm(
             f"Sync all files from container repo to {workspace_path.name}?",
             default=False,
@@ -1300,6 +1301,16 @@ def pull(workspace, paths, delete, dry_run, yes):
         dry_run=dry_run,
         extra_excludes=extra_excludes,
     )
+
+    if delete and not force and not dry_run:
+        deletions = _find_deletions(cmd)
+        if deletions:
+            click.echo("These files will be deleted from the host:")
+            for f in deletions:
+                click.echo(f"  {f}")
+            if not click.confirm("\nProceed?", default=False):
+                click.echo("Aborted")
+                return
 
     if dry_run:
         click.echo("Dry run — showing what would be synced:")
@@ -1321,7 +1332,8 @@ def pull(workspace, paths, delete, dry_run, yes):
 @click.option('--delete', is_flag=True, help='Also remove files in container that are absent on host')
 @click.option('--dry-run', '-n', is_flag=True, help='Show what would be synced without doing it')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation for full-tree sync')
-def push(workspace, paths, delete, dry_run, yes):
+@click.option('--force', '-f', is_flag=True, help='Skip all confirmations')
+def push(workspace, paths, delete, dry_run, yes, force):
     """Sync code from host workspace to container.
 
     WORKSPACE is the workspace directory name or path.
@@ -1351,7 +1363,7 @@ def push(workspace, paths, delete, dry_run, yes):
             sys.exit(1)
 
     # Full-tree sync without --dry-run requires confirmation
-    if not paths and not dry_run and not yes:
+    if not paths and not dry_run and not yes and not force:
         if not click.confirm(
             f"Sync all files from {workspace_path.name} to container repo?",
             default=False,
@@ -1370,6 +1382,16 @@ def push(workspace, paths, delete, dry_run, yes):
         dry_run=dry_run,
         extra_excludes=extra_excludes,
     )
+
+    if delete and not force and not dry_run:
+        deletions = _find_deletions(cmd)
+        if deletions:
+            click.echo("These files will be deleted from the container:")
+            for f in deletions:
+                click.echo(f"  {f}")
+            if not click.confirm("\nProceed?", default=False):
+                click.echo("Aborted")
+                return
 
     if dry_run:
         click.echo("Dry run — showing what would be synced:")
