@@ -1229,6 +1229,22 @@ def _build_rsync_cmd(
     return cmd
 
 
+def _find_deletions(cmd: list) -> list[str]:
+    """Run a silent rsync dry-run and return paths that would be deleted.
+
+    Parses lines beginning with 'deleting ' from rsync's stdout.
+    """
+    dry_cmd = list(cmd)
+    if '--dry-run' not in dry_cmd:
+        dry_cmd.append('--dry-run')
+    result = subprocess.run(dry_cmd, capture_output=True, text=True)
+    return [
+        line[len('deleting '):]
+        for line in result.stdout.splitlines()
+        if line.startswith('deleting ')
+    ]
+
+
 @main.command()
 @click.argument('workspace')
 @click.argument('paths', nargs=-1)

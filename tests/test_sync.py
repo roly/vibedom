@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 from click.testing import CliRunner
-from vibedom.cli import main, _make_workspace_relative
+from vibedom.cli import main, _make_workspace_relative, _find_deletions
 from vibedom.container_state import ContainerState
 
 
@@ -399,3 +399,38 @@ def test_push_prints_resolved_paths(sync_env):
                 )
 
     assert 'src/app/Controllers' in result.output
+
+
+def test_find_deletions_returns_deleted_paths(tmp_path):
+    cmd = ['rsync', '-av', '--delete', f'{tmp_path}/', str(tmp_path / 'dst')]
+    mock_stdout = 'sending incremental file list\ndeleting .env.secrets\ndeleting tmp/scratch.txt\nsrc/app.php\n'
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=mock_stdout)
+        result = _find_deletions(cmd)
+    assert result == ['.env.secrets', 'tmp/scratch.txt']
+
+
+def test_find_deletions_adds_dry_run_flag(tmp_path):
+    cmd = ['rsync', '-av', '--delete', f'{tmp_path}/', str(tmp_path / 'dst')]
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout='')
+        _find_deletions(cmd)
+    called_cmd = mock_run.call_args[0][0]
+    assert '--dry-run' in called_cmd
+
+
+def test_find_deletions_does_not_duplicate_dry_run(tmp_path):
+    cmd = ['rsync', '-av', '--delete', '--dry-run', f'{tmp_path}/', str(tmp_path / 'dst')]
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout='')
+        _find_deletions(cmd)
+    called_cmd = mock_run.call_args[0][0]
+    assert called_cmd.count('--dry-run') == 1
+
+
+def test_find_deletions_returns_empty_when_nothing_deleted(tmp_path):
+    cmd = ['rsync', '-av', '--delete', f'{tmp_path}/', str(tmp_path / 'dst')]
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout='src/app.php\nsrc/other.py\n')
+        result = _find_deletions(cmd)
+    assert result == []
