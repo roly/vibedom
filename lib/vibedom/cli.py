@@ -1256,6 +1256,8 @@ def pull(workspace, paths, delete, dry_run, yes):
     repo_dir = container_dir / 'repo'
 
     if paths:
+        paths = tuple(_make_workspace_relative(p, workspace_path) for p in paths)
+        click.echo("Resolved: " + ", ".join(paths))
         try:
             _validate_sync_paths(paths, repo_dir)
         except click.ClickException as e:
@@ -1324,6 +1326,8 @@ def push(workspace, paths, delete, dry_run, yes):
     repo_dir = container_dir / 'repo'
 
     if paths:
+        paths = tuple(_make_workspace_relative(p, workspace_path) for p in paths)
+        click.echo("Resolved: " + ", ".join(paths))
         try:
             _validate_sync_paths(paths, workspace_path)
         except click.ClickException as e:

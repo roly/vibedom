@@ -319,3 +319,64 @@ def test_make_workspace_relative_escape_protection(tmp_path):
     cwd = workspace
     result = _make_workspace_relative('../../etc/passwd', workspace, cwd=cwd)
     assert result == '../../etc/passwd'
+
+
+def test_pull_resolves_paths_via_make_workspace_relative(sync_env):
+    """pull should call _make_workspace_relative for each path argument."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._make_workspace_relative', return_value='src/app.php') as mock_resolve:
+                result = runner.invoke(
+                    main, ['pull', 'myapp', 'app.php'], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    mock_resolve.assert_called_once()
+    assert mock_resolve.call_args[0][0] == 'app.php'
+
+
+def test_push_resolves_paths_via_make_workspace_relative(sync_env):
+    """push should call _make_workspace_relative for each path argument."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._make_workspace_relative', return_value='src/app.php') as mock_resolve:
+                result = runner.invoke(
+                    main, ['push', 'myapp', 'app.php'], catch_exceptions=False
+                )
+
+    assert result.exit_code == 0
+    mock_resolve.assert_called_once()
+    assert mock_resolve.call_args[0][0] == 'app.php'
+
+
+def test_pull_prints_resolved_paths(sync_env):
+    """pull should print the resolved workspace-relative path before syncing."""
+    runner = CliRunner()
+
+    with patch('vibedom.cli.ContainerRegistry') as mock_registry_cls:
+        mock_registry = MagicMock()
+        mock_registry.find.return_value = sync_env['state']
+        mock_registry_cls.return_value = mock_registry
+
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch('vibedom.cli._make_workspace_relative', return_value='src/app/Controllers'):
+                result = runner.invoke(
+                    main, ['pull', 'myapp', 'app/Controllers'], catch_exceptions=False
+                )
+
+    assert 'src/app/Controllers' in result.output
