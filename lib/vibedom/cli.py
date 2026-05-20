@@ -1229,7 +1229,7 @@ def _build_rsync_cmd(
     return cmd
 
 
-def _find_deletions(cmd: list) -> list[str]:
+def _find_deletions(cmd: list[str]) -> list[str]:
     """Run a silent rsync dry-run and return paths that would be deleted.
 
     Parses lines beginning with 'deleting ' from rsync's stdout.
