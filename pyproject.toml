@@ -29,7 +29,7 @@ vibedom = ["container/*", "config/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["lib", "lib/vibedom/container"]
+pythonpath = ["lib", "lib/vibedom/container", "tests"]
 python_files = "test_*.py"
 addopts = ["-m", "not integration"]
 markers = [
