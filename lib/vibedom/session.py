@@ -143,7 +143,7 @@ class Session:
         """
         if self.state.status != 'running':
             return False
-        runtime_cmd = 'container' if self.state.runtime == 'apple' else 'docker'
+        runtime_cmd = 'container' if self.state.runtime == 'apple' else self.state.runtime
         try:
             result = subprocess.run(
                 [runtime_cmd, 'ps', '--filter', f'name={self.state.container_name}',

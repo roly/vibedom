@@ -100,7 +100,7 @@ def main():
     pass
 
 @main.command()
-@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'apple'],
+@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'podman', 'apple'],
               case_sensitive=False), default='auto',
               help='Container runtime to use for building the image (default: auto-detect)')
 def init(runtime: str):
@@ -284,7 +284,7 @@ def config_cloudflare(account_id: Optional[str], gateway_id: Optional[str],
 
 @main.command()
 @click.argument('workspace', type=click.Path(exists=True))
-@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'apple'],
+@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'podman', 'apple'],
               case_sensitive=False), default='auto',
               help='Container runtime (auto-detect, docker, or apple)')
 def run(workspace, runtime):
@@ -480,7 +480,7 @@ def attach(session_id):
         )
         sys.exit(1)
 
-    runtime_cmd = 'container' if session.state.runtime == 'apple' else 'docker'
+    runtime_cmd = 'container' if session.state.runtime == 'apple' else session.state.runtime
     cmd = [runtime_cmd, 'exec', '-it', '-w', '/work/repo',
            session.state.container_name, 'bash']
     try:
@@ -950,8 +950,9 @@ def _live_container_status(c: ContainerState) -> str:
         except (ValueError, KeyError, IndexError):
             return 'unknown'
     else:
+        runtime_cmd = c.runtime  # 'docker' or 'podman'
         result = subprocess.run(
-            ['docker', 'inspect', '--format', '{{.State.Status}}', c.container_name],
+            [runtime_cmd, 'inspect', '--format', '{{.State.Status}}', c.container_name],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -999,7 +1000,7 @@ def _ensure_proxy_running(
 
 @main.command()
 @click.argument('workspace', type=click.Path(exists=True))
-@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'apple'],
+@click.option('--runtime', '-r', type=click.Choice(['auto', 'docker', 'podman', 'apple'],
               case_sensitive=False), default='auto',
               help='Container runtime (auto-detect, docker, or apple)')
 def up(workspace, runtime):
@@ -1295,7 +1296,7 @@ def shell_cmd(workspace):
     container_dir = containers_dir / Path(container_state.workspace).name
     _ensure_proxy_running(container_state, container_dir, config_dir)
 
-    runtime_cmd = 'container' if container_state.runtime == 'apple' else 'docker'
+    runtime_cmd = 'container' if container_state.runtime == 'apple' else container_state.runtime
     cmd = [runtime_cmd, 'exec', '-it', '-w', '/work/repo',
            container_state.container_name, 'bash', '--login']
     try:

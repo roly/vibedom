@@ -152,6 +152,31 @@ def test_explicit_runtime_raises_if_not_available(test_workspace, test_config):
             VMManager(test_workspace, test_config, runtime='docker')
 
 
+def test_detect_runtime_falls_back_to_podman(test_workspace, test_config):
+    """Should fall back to podman when docker and apple/container are not available."""
+    with patch('shutil.which') as mock_which:
+        mock_which.side_effect = lambda cmd: '/usr/local/bin/podman' if cmd == 'podman' else None
+        vm = VMManager(test_workspace, test_config)
+        assert vm.runtime == 'podman'
+        assert vm.runtime_cmd == 'podman'
+
+
+def test_explicit_runtime_podman(test_workspace, test_config):
+    """Should use podman when explicitly specified."""
+    with patch('shutil.which') as mock_which:
+        mock_which.return_value = '/usr/local/bin/podman'
+        vm = VMManager(test_workspace, test_config, runtime='podman')
+        assert vm.runtime == 'podman'
+        assert vm.runtime_cmd == 'podman'
+
+
+def test_explicit_runtime_podman_raises_if_not_available(test_workspace, test_config):
+    """Should raise RuntimeError when podman explicitly requested but not found."""
+    with patch('shutil.which', return_value=None):
+        with pytest.raises(RuntimeError, match="Podman runtime requested but not found"):
+            VMManager(test_workspace, test_config, runtime='podman')
+
+
 def test_start_uses_apple_runtime(test_workspace, test_config, tmp_path):
     """start() should use 'container' command when runtime is apple."""
     with patch('shutil.which') as mock_which:
