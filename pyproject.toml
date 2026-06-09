@@ -27,6 +27,9 @@ where = ["lib"]
 [tool.setuptools.package-data]
 vibedom = ["container/*", "config/*"]
 
+[tool.uv]
+package = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["lib", "lib/vibedom/container", "tests"]
