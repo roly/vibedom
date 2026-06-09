@@ -144,7 +144,7 @@ cd .worktrees/feature-name
 
 ### Test-Driven Development
 
-**Always run the full test suite after any code change and fix any failures before committing.** Use `pytest tests/ -v`. Core logic tests must be 100% passing.
+**Always run the full test suite after any code change and fix any failures before committing.** Use `uv run pytest tests/ -v`. Core logic tests must be 100% passing.
 
 All features follow TDD:
 1. Write failing test
@@ -220,17 +220,14 @@ All features follow TDD:
 ### Running Tests
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
 # Run all tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_gitleaks.py -v
+uv run pytest tests/test_gitleaks.py -v
 
 # Run with coverage
-pytest tests/ --cov=lib/vibedom --cov-report=html
+uv run pytest tests/ --cov=lib/vibedom --cov-report=html
 ```
 
 ### Test Results (Phase 1)
@@ -307,7 +304,7 @@ vibedom/
 pip install -e .
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Build VM image
 vibedom init  # builds image on first run
