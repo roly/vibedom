@@ -113,11 +113,16 @@ class VMManager:
         if not dockerfile.exists():
             raise RuntimeError(f"Dockerfile not found at {dockerfile}")
 
-        subprocess.run(
-            [runtime_cmd, 'build', '-t', 'vibedom-alpine:latest',
-             '-f', str(dockerfile), str(container_dir)],
-            check=True
-        )
+        try:
+            subprocess.run(
+                [runtime_cmd, 'build', '-t', 'vibedom-alpine:latest',
+                 '-f', str(dockerfile), str(container_dir)],
+                check=True
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"`{runtime_cmd} build` failed (exit {exc.returncode})"
+            ) from exc
 
     def _image_name(self) -> str:
         """Return the image to run. Builds project layer if base_image set."""
